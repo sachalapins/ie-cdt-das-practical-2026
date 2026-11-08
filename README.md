@@ -1,4 +1,4 @@
-# DAS practical: Intelligent Earth CDT, Natural Hazards (Nov 2026)
+# DAS practical: Intelligent Earth CDT, Natural Hazards week (Nov 2026)
 
 A hands-on practical on Distributed Acoustic Sensing (DAS) data and machine-learning denoising with [DAS-N2N](https://github.com/sachalapins/DAS-N2N-torch): icequakes on an Antarctic ice stream, a micro-earthquake in a geothermal borehole, and whale calls on a seafloor telecom cable.
 
@@ -12,7 +12,7 @@ A hands-on practical on Distributed Acoustic Sensing (DAS) data and machine-lear
 | `das_utils.py` | Helper functions (plotting, filters, scoring, DAS-N2N wrapper), fetched by the notebook |
 | Release `v1.0` assets | The data files listed below (downloaded automatically by the notebook) |
 
-A solutions notebook with demonstrator notes is distributed separately.
+Answers are included in the notebook as collapsible sections.
 
 ## Data files
 

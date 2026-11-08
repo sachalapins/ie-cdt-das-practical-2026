@@ -1,6 +1,9 @@
 """
 das_utils.py — helper functions for the Intelligent Earth CDT DAS practical.
 
+Everything here is deliberately simple so that the notebook cells stay short
+and focus on the *ideas*. Feel free to read it, but you don't need to.
+
 Conventions used throughout
 ---------------------------
 DAS data are 2-D numpy arrays with shape (n_time_samples, n_channels):
@@ -433,7 +436,7 @@ class TODO(Exception):
     pass
 
 
-def require(*values, message="A ✏️ value in this cell hasn't been filled in yet (look for `None`)."):
+def require(*values, message="A ✏️ value in this cell has not been filled in yet (replace None with your value)."):
     """Stop the notebook with a friendly message if a TODO hasn't been filled in."""
     for value in values:
         if value is None or (isinstance(value, str) and value.strip() in ("", "?")):
@@ -449,7 +452,7 @@ def predict(*predictions):
 
 def check_range(name, value, lo, hi, unit=""):
     """Gentle sanity check for a numerical answer."""
-    require(value, message=f"Set `{name}` in the cell above first.")
+    require(value, message=f"Set `{name}` in this cell first (replace None with your value).")
     if lo <= value <= hi:
         print(f"✅ {name} = {value:g} {unit} — looks sensible.")
     else:
