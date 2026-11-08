@@ -235,9 +235,10 @@ def fk_transform(data, fs, dx):
     return f, k, np.abs(F)
 
 
-def plot_fk(rec, data=None, ax=None, fmax=None, velocities=(), title="f–k spectrum"):
+def plot_fk(rec, data=None, ax=None, fmax=None, kmax=None, velocities=(), title="f–k spectrum"):
     """Plot the f–k amplitude spectrum (positive frequencies, dB). Straight lines through the origin
-    are constant apparent velocity v = f / k; draw some with velocities=[...] (m/s)."""
+    are constant apparent velocity v = f / k; optionally draw some with velocities=[...] (m/s).
+    kmax limits the wavenumber axis to [-kmax, kmax] (cycles/m)."""
     d = rec.data if data is None else data
     f, k, A = fk_transform(d, rec.fs, rec.dx)
     keep = f >= 0
@@ -253,7 +254,7 @@ def plot_fk(rec, data=None, ax=None, fmax=None, velocities=(), title="f–k spec
     if velocities:
         ax.legend(loc="upper right", fontsize=8)
     ax.set_ylim(0, fmax or f[-1])
-    ax.set_xlim(k[0], k[-1])
+    ax.set_xlim(-kmax if kmax else k[0], kmax if kmax else k[-1])
     ax.set_xlabel("Wavenumber (cycles / m)")
     ax.set_ylabel("Frequency (Hz)")
     ax.set_title(title)
@@ -264,12 +265,20 @@ def plot_fk(rec, data=None, ax=None, fmax=None, velocities=(), title="f–k spec
 # Classical filters
 # ---------------------------------------------------------------------------
 
-def bandpass(data, fs, fmin, fmax, order=4):
-    """Zero-phase Butterworth band-pass filter applied to every channel (along the time axis)."""
+def detrend(data):
+    """Remove the mean and any linear trend from each channel."""
+    return signal.detrend(data, axis=0, type="linear").astype(np.float32)
+
+
+def bandpass(data, fs, fmin, fmax, order=4, taper=0.05):
+    """Zero-phase Butterworth band-pass filter applied to every channel (along the time axis).
+    Each channel is detrended and tapered (Tukey window, `taper` = fraction of the record) first,
+    to avoid filter transients at the start and end of the record."""
     if not (0 < fmin < fmax < fs / 2):
         raise ValueError(f"Need 0 < fmin < fmax < Nyquist ({fs / 2:g} Hz); got fmin={fmin}, fmax={fmax}.")
+    d = detrend(data) * signal.windows.tukey(data.shape[0], taper)[:, None]
     sos = signal.butter(order, [fmin, fmax], btype="band", fs=fs, output="sos")
-    return signal.sosfiltfilt(sos, data, axis=0).astype(np.float32)
+    return signal.sosfiltfilt(sos, d, axis=0).astype(np.float32)
 
 
 def notch(data, fs, freqs, q=30):
@@ -289,10 +298,12 @@ def wiener(data, size=(7, 7)):
 
 
 def remove_common_mode(data, channels=None):
-    """Subtract, at every time sample, the median across channels (noise shared by the whole cable,
-    e.g. from the interrogator/laser). `channels` selects which channels to estimate it from."""
-    ref = data if channels is None else data[:, channels]
-    return (data - np.median(ref, axis=1, keepdims=True)).astype(np.float32)
+    """Remove common-mode noise (fluctuations recorded simultaneously on every channel, e.g. from the
+    interrogator). Each channel is first detrended; then, at every time sample, the median across the
+    selected `channels` is subtracted from all channels."""
+    d = detrend(data)
+    ref = d if channels is None else d[:, channels]
+    return (d - np.median(ref, axis=1, keepdims=True)).astype(np.float32)
 
 
 # ---------------------------------------------------------------------------
@@ -360,37 +371,50 @@ def snr_db(data, rec, signal_box, noise_box):
     return 20 * np.log10(sig / (rn + 1e-12))
 
 
-def draw_boxes(ax, rec, signal_box, noise_box):
-    """Overlay the SNR boxes on a record-section plot."""
+def draw_boxes(ax, rec, signal_box, noise_box, weak_box=None):
+    """Overlay the scoring windows on a record-section plot."""
     from matplotlib.patches import Rectangle
-    for (t, c), col, lab in [(signal_box, "lime", "signal"), (noise_box, "orange", "noise")]:
+    boxes = [(signal_box, "lime", "main arrival"), (noise_box, "orange", "noise")]
+    if weak_box is not None:
+        boxes.append((weak_box, "cyan", "weak arrival"))
+    for (t, c), col, lab in boxes:
         x1, x2 = rec.x0 + c[0] * rec.dx, rec.x0 + c[1] * rec.dx
         ax.add_patch(Rectangle((x1, t[0]), x2 - x1, t[1] - t[0], fill=False, ec=col, lw=2, label=lab))
     ax.legend(loc="lower right", fontsize=8)
 
 
 class Scoreboard:
-    """Keeps a table of denoising methods: SNR, signal amplitude kept, run time."""
+    """Table of denoising methods: SNR of the main arrival, signal amplitude retained (relative to a
+    reference, for the main arrival and optionally a weaker arrival), and run time."""
 
-    def __init__(self, rec, signal_box, noise_box, reference=None):
-        self.rec, self.sb, self.nb = rec, signal_box, noise_box
-        self.reference = reference   # e.g. the band-passed data, for "signal amplitude kept"
+    def __init__(self, rec, signal_box, noise_box, reference=None, weak_box=None):
+        self.rec, self.sb, self.nb, self.wb = rec, signal_box, noise_box, weak_box
+        self.reference = reference   # e.g. the band-passed data, for the amplitude columns
         self.rows = []
+
+    def _amp(self, data, box):
+        sig = signal_and_noise(data, self.rec, box, self.nb)[0]
+        sig_ref = signal_and_noise(self.reference, self.rec, box, self.nb)[0]
+        return float(sig / sig_ref)
 
     def add(self, method, data, seconds=np.nan, amplitude=True):
         snr = snr_db(data, self.rec, self.sb, self.nb)
-        amp = np.nan
+        amp = weak = np.nan
         if self.reference is not None and amplitude:
-            sig = signal_and_noise(data, self.rec, self.sb, self.nb)[0]
-            sig_ref = signal_and_noise(self.reference, self.rec, self.sb, self.nb)[0]
-            amp = float(sig / sig_ref)
-        self.rows = [r for r in self.rows if r[0] != method] + [(method, snr, amp, seconds)]
+            amp = self._amp(data, self.sb)
+            if self.wb is not None:
+                weak = self._amp(data, self.wb)
+        self.rows = [r for r in self.rows if r[0] != method] + [(method, snr, amp, weak, seconds)]
         return snr
 
     def show(self):
         import pandas as pd
-        df = pd.DataFrame(self.rows, columns=["method", "SNR (dB)", "signal amplitude vs reference", "run time (s)"])
-        return df.set_index("method").round(2)
+        cols = ["method", "SNR (dB)", "amplitude retained: main arrival",
+                "amplitude retained: weak arrival", "run time (s)"]
+        df = pd.DataFrame(self.rows, columns=cols).set_index("method")
+        if self.wb is None:
+            df = df.drop(columns=cols[3])
+        return df.round(2)
 
 
 # ---------------------------------------------------------------------------
