@@ -1,9 +1,6 @@
 """
 das_utils.py — helper functions for the Intelligent Earth CDT DAS practical.
 
-Everything here is deliberately simple so that the notebook cells stay short
-and focus on the *ideas*. Feel free to read it, but you don't need to.
-
 Conventions used throughout
 ---------------------------
 DAS data are 2-D numpy arrays with shape (n_time_samples, n_channels):
